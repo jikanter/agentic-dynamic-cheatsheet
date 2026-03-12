@@ -43,7 +43,7 @@ def extract_and_run_python_code(txt: str) -> str:
         return "\n".join(lines)
 
     if "```python" not in txt:
-        return None  # Return early if no Python code block is present
+        return ""  # Return early if no Python code block is present
 
     try:
         # Extract and sanitize the code

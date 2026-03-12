@@ -34,90 +34,207 @@ Dynamic Cheatsheet (DC) endows black-box language models with the ability to sto
 
 Unlike fine-tuning or static retrieval methods, DC adapts LMs' problem-solving skills on the fly, continuously refining responses and reducing routine errors. This approach mimics the cumulative, experience-driven learning characteristic of human cognition, allowing models to learn from their experiences during deployment.
 
-## Quick Start
+## Installation
 
-Getting started with Dynamic Cheatsheet is straightforward. The framework allows you to enhance language models with persistent memory capabilities across inference sessions.
+### Prerequisites
+
+- Python 3.9+
+
+### Install Dependencies
+
+```bash
+pip install tiktoken numpy pandas scikit-learn datasets python-dotenv typed-argument-parser openai
+```
+
+Provider-specific SDKs (install only what you need):
+
+```bash
+# For OpenAI models (gpt-4o, o3-mini, etc.)
+pip install openai
+
+# For Anthropic models (Claude)
+pip install anthropic
+
+# For Google Gemini models
+pip install google-genai
+
+# For Together AI, DeepSeek, Ollama — these use OpenAI-compatible APIs,
+# so only the openai package is needed (already installed above)
+```
+
+### API Key Setup
+
+Create a `config.env` file in the project root with your API keys:
+
+```bash
+# config.env (this file is git-ignored)
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+GEMINI_API_KEY=...
+XAI_API_KEY=...
+TOGETHER_API_KEY=...
+DEEPSEEK_API_KEY=...
+```
+
+Only include the keys for providers you plan to use.
+
+## Quick Start
 
 ### Basic Usage
 
 ```python
 from dynamic_cheatsheet.language_model import LanguageModel
 
-# Initialize a model wrapper
-model = LanguageModel(
-    model_name="openai/gpt-4o-2024-11-20"  # Supports various models including OpenAI, Anthropic, DeepSeek, Llama, Gemini, etc.
-)
+# Initialize a model wrapper — supports many providers
+model = LanguageModel(model_name="openai/gpt-4o")
 
-# You can define custom prompts or use our recommended ones
-# Generator prompt instructs the model how to utilize the cheatsheet
+# Load prompts
 with open("prompts/generator_prompt.txt", "r") as f:
     generator_prompt = f.read()
-
-# Curator prompt guides the model in updating and maintaining the cheatsheet
 with open("prompts/curator_prompt_for_dc_cumulative.txt", "r") as f:
     curator_prompt = f.read()
 
-# Example input - Game of 24 puzzle
+# Example: Game of 24 puzzle
 input_txt = "Let's play a game called 24. You'll be given four integers, and your objective is to use each number only once, combined with any of the four arithmetic operations (addition, subtraction, multiplication, and division) and parentheses, to achieve a total of 24. For example, if the input is 4, 7, 8, and 8, the output could be (7 - (8 / 8)) * 4 = 24. Please present a single expression that evaluates to 24. Question  #1: 5 6 6 8"
 
-# Initialize an empty cheatsheet or provide an existing one
-current_cheatsheet = "(empty)"  # Start with an empty cheatsheet for new sessions
-
-# Generate a response using the Dynamic Cheatsheet approach
-results_dict = model.advanced_generate(
-    approach_name="DynamicCheatsheet_Cumulative",  # Options: "DynamicCheatsheet_Cumulative", "DynamicCheatsheet_RetrievalSynthesis"
+# Generate with Dynamic Cheatsheet
+results = model.advanced_generate(
+    approach_name="DynamicCheatsheet_Cumulative",
     input_txt=input_txt,
-    cheatsheet=current_cheatsheet,
+    cheatsheet="(empty)",  # Start with an empty cheatsheet
     generator_template=generator_prompt,
-    cheatsheet_template=curator_prompt
+    cheatsheet_template=curator_prompt,
 )
 
 # Extract results
-model_full_output = results_dict["final_output"]  # Complete model output
-model_answer = results_dict["final_answer"]       # Extracted answer
-new_cheatsheet = results_dict['final_cheatsheet'] # Updated cheatsheet for future queries
+print(f"Answer: {results['final_answer']}")
+print(f"Updated Cheatsheet: {results['final_cheatsheet']}")
 
-# The updated cheatsheet can be saved or passed to subsequent calls
-print(f"Model Answer: {model_answer}")
-print(f"Updated Cheatsheet: {new_cheatsheet}")
+# Pass the updated cheatsheet to the next query to accumulate knowledge
+next_results = model.advanced_generate(
+    approach_name="DynamicCheatsheet_Cumulative",
+    input_txt="Question #2: 1 3 8 9",
+    cheatsheet=results['final_cheatsheet'],  # Reuse the cheatsheet
+    generator_template=generator_prompt,
+    cheatsheet_template=curator_prompt,
+)
 ```
 
-### Understanding DC Variants
+### Supported Models
 
-We provide two main variants of Dynamic Cheatsheet:
+The `model_name` uses `"provider/model"` format:
 
-1. **DC-Cumulative**: Maintains a growing cheatsheet that accumulates knowledge across all queries. Best for sequential problem-solving where insights build upon each other.
+| Provider | Example model names |
+|----------|-------------------|
+| OpenAI | `openai/gpt-4o`, `openai/gpt-4o-mini`, `openai/o3-mini` |
+| Anthropic | `anthropic/claude-sonnet-4-5-20250514`, `anthropic/claude-3-5-sonnet-latest` |
+| Google Gemini | `gemini/gemini-2.5-flash`, `gemini/gemini-2.0-flash` |
+| xAI (Grok) | `xai/grok-3`, `xai/grok-4-1` |
+| Together AI | `together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo`, `together_ai/deepseek-ai/DeepSeek-R1` |
+| DeepSeek | `deepseek/deepseek-chat`, `deepseek/deepseek-reasoner` |
+| Ollama (local) | `ollama/llama3:70b` |
 
-2. **DC-Retrieval & Synthesis**: Uses similarity-based retrieval to find relevant previous experiences, then synthesizes them into a custom cheatsheet for each query. Ideal for large-scale applications with diverse queries.
+## DC Approaches
 
-### Example Notebook
+We provide multiple variants of Dynamic Cheatsheet:
 
-For a comprehensive demonstration of Dynamic Cheatsheet capabilities, please take a look at our `ExampleUsage.ipynb` notebook. This interactive guide illustrates how the cheatsheet evolves using a simple example.
+| Approach | Description | Requires Embeddings? |
+|----------|-------------|---------------------|
+| `default` | Single LLM call, no cheatsheet (baseline) | No |
+| `DynamicCheatsheet_Cumulative` | Maintains a growing cheatsheet that accumulates knowledge across all queries. Best for sequential problem-solving. | No |
+| `DynamicCheatsheet_RetrievalSynthesis` | Retrieves top-k similar past examples, synthesizes them into a custom cheatsheet per query. Ideal for diverse query sets. | Yes |
+| `DynamicCheatsheet_CumulativeRetrieval` | **Hybrid** — combines a cumulative cheatsheet (general strategies) with retrieval of similar examples (task-specific context). Gets the best of both worlds. | Yes |
+| `FullHistoryAppending` | Appends all previous input-output pairs verbatim (no curation, baseline). | No |
+| `Dynamic_Retrieval` | Retrieves top-k similar examples without synthesis. | Yes |
 
-### Reproducing Results
+## Running Benchmarks
 
-The following command demonstrates how to benchmark Dynamic Cheatsheet with Retrieval and Synthesis on the Game of 24 puzzle:
+### Basic Command
 
 ```bash
-python run_benchmark.py --task "GameOf24" --approach "DynamicCheatsheet_RetrievalSynthesis" \
-    --model_name "openai/gpt-4o-2024-11-20" \
-    --additional_flag_for_save_path "DynamicCheatsheet_RetrievalSynthesis" \
-    --save_directory "TEST_RESULTS" \
+python run_benchmark.py \
+    --task "GameOf24" \
+    --approach_name "DynamicCheatsheet_Cumulative" \
+    --model_name "openai/gpt-4o-mini" \
     --generator_prompt_path "prompts/generator_prompt.txt" \
-    --cheatsheet_prompt_path "prompts/curator_prompt_for_dc_retrieval_synthesis.txt" \
+    --cheatsheet_prompt_path "prompts/curator_prompt_for_dc_cumulative.txt" \
     --max_n_samples 10
 ```
 
-#### Key Parameters:
+### Example: Retrieval-Synthesis on Game of 24
 
-- `--task`: Specifies the benchmark task (options include: `GameOf24`, `AIME_2025`, `GPQA_Diamond`, `MathEquationBalancer`, *inter alia*).
-- `--approach`: Selects which DC variant or generation baseline to use (options include: `DynamicCheatsheet_RetrievalSynthesis`, `DynamicCheatsheet_RetrievalSynthesis`, `Dynamic_Retrieval`, `FullHistoryAppending`, `default`).
-- `--model_name`: Defines which LLM to use (supports many provider formats); we recommend using smaller and cheaper models (e.g., `openai/gpt-4o-mini`) for initial testing.
-- `--max_n_samples`: Limits the number of examples to process (useful for testing).
-- `--save_directory`: Where to store benchmark results and generated cheatsheets.
-- `--generator_prompt_path` & `--cheatsheet_prompt_path`: Paths to custom prompt templates.
+```bash
+python run_benchmark.py \
+    --task "GameOf24" \
+    --approach_name "DynamicCheatsheet_RetrievalSynthesis" \
+    --model_name "openai/gpt-4o" \
+    --generator_prompt_path "prompts/generator_prompt.txt" \
+    --cheatsheet_prompt_path "prompts/curator_prompt_for_dc_retrieval_synthesis.txt" \
+    --save_directory "results" \
+    --max_n_samples 10
+```
 
-Additional options and customizations can be found in the codebase.
+### Example: Hybrid Cumulative+Retrieval on AIME
+
+```bash
+python run_benchmark.py \
+    --task "AIME_2025" \
+    --approach_name "DynamicCheatsheet_CumulativeRetrieval" \
+    --model_name "anthropic/claude-sonnet-4-5-20250514" \
+    --generator_prompt_path "prompts/generator_prompt.txt" \
+    --cheatsheet_prompt_path "prompts/curator_prompt_for_dc_cumulative.txt" \
+    --max_n_samples 5
+```
+
+### Example: Using Gemini
+
+```bash
+python run_benchmark.py \
+    --task "GPQA_Diamond" \
+    --approach_name "DynamicCheatsheet_Cumulative" \
+    --model_name "gemini/gemini-2.5-flash" \
+    --generator_prompt_path "prompts/generator_prompt.txt" \
+    --cheatsheet_prompt_path "prompts/curator_prompt_for_dc_cumulative.txt" \
+    --no_shuffle
+```
+
+### CLI Reference
+
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--task` | Benchmark task: `GameOf24`, `AIME_2025`, `AIME_2024`, `AIME_2020_2024`, `GPQA_Diamond`, `MMLU_Pro_Physics`, `MMLU_Pro_Engineering`, `MathEquationBalancer` | `GameOf24` |
+| `--approach_name` | DC variant (see table above) | `DynamicCheatsheet_Cumulative` |
+| `--model_name` | Model in `provider/model` format | `openai/gpt-4o-mini` |
+| `--generator_prompt_path` | Path to the generator prompt template | `prompts/generator_prompt.txt` |
+| `--cheatsheet_prompt_path` | Path to the curator prompt template | `None` |
+| `--max_tokens` | Max tokens per generation | `2048` |
+| `--temperature` | Sampling temperature | `0.0` |
+| `--max_num_rounds` | Max refinement rounds per query | `1` |
+| `--execute_python_code` | Enable Python code execution in model responses | `True` |
+| `--retrieve_top_k` | Number of similar examples to retrieve | `3` |
+| `--max_n_samples` | Limit number of examples to process (-1 = all) | `-1` |
+| `--no_shuffle` | Disable dataset shuffling | `False` |
+| `--save_directory` | Output directory for results | `results` |
+| `--continue_from_last_run_path` | Path to JSONL to resume from | `None` |
+| `--initialize_cheatsheet_path` | Path to a pre-existing cheatsheet file | `None` |
+
+### Resuming a Run
+
+If a run is interrupted, you can resume from the last checkpoint:
+
+```bash
+python run_benchmark.py \
+    --task "GameOf24" \
+    --approach_name "DynamicCheatsheet_Cumulative" \
+    --model_name "openai/gpt-4o-mini" \
+    --generator_prompt_path "prompts/generator_prompt.txt" \
+    --cheatsheet_prompt_path "prompts/curator_prompt_for_dc_cumulative.txt" \
+    --continue_from_last_run_path "results/GameOf24/openai_gpt-4o-mini_DynamicCheatsheet_Cumulative_2025-01-01-12-00_.jsonl"
+```
+
+### Example Notebook
+
+For an interactive demonstration, see `ExampleUsage.ipynb`.
 
 ## Citation
 
@@ -125,13 +242,13 @@ If you make use of our results, codebase, or results in your research or applica
 
 ```bibtex
 @article{suzgun2025_DynamicCheatsheet,
-      title={Dynamic Cheatsheet: Test-Time Learning with Adaptive Memory}, 
+      title={Dynamic Cheatsheet: Test-Time Learning with Adaptive Memory},
       author={Mirac Suzgun and Mert Yuksekgonul and Federico Bianchi and Dan Jurafsky and James Zou},
       year={2025},
       eprint={2504.07952},
       archivePrefix={arXiv},
       primaryClass={cs.LG},
-      url={https://arxiv.org/abs/2504.07952}, 
+      url={https://arxiv.org/abs/2504.07952},
 }
 ```
 
